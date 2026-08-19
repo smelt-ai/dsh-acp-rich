@@ -1,0 +1,159 @@
+# DeepSeek Harness runtime composition for smelt's ACP bridge.
+#
+# This is the reference profile: copy it next to your workspace (or point
+# `dsh-acp-rich --config` at it) and edit the model route. Every entry is a
+# cordis plugin; ordering here is documentation only — `dsh-acp-rich` declares
+# `inject.required: ['agents']`, so the loader defers the bridge until the agent
+# spine has published its services, no matter where it sits in this list.
+#
+# Two rules this tree must never break:
+#   * No stdout logger and no HMR. Stdout is the ACP JSON-RPC frame; anything
+#     else on it makes smelt report a corrupt agent.
+#   * Pin every version. The harness is a developer preview that promises
+#     compatibility-breaking changes, and `SessionEventMap` is a declaration-
+#     merged open vocabulary, so an upstream rename reaches this bridge as a
+#     silently missing card rather than a build error. See README, "Upgrades".
+
+# ---- Model route -------------------------------------------------------------
+# The only adapters the harness ships are DeepSeek and pi-ai. Needs DEEPSEEK_API_KEY
+# in the environment or a sibling `.env` (loaded by the bin before this file).
+- id: llm-deepseek
+  name: '@deepseek-ai/dsh-llm-deepseek'
+  config:
+    thinking: enabled
+    reasoningEffort: max
+    models:
+      - id: deepseek-v4-flash
+      - id: deepseek-v4-pro
+# Every model listed here becomes a row in smelt's model picker, grouped by
+# provider route. Mount a second adapter and its models join the same picker.
+
+# ---- Execution sandbox -------------------------------------------------------
+# `workspace-write` confines both bash and the filesystem tools to the workspace
+# and asks before anything wider. Leave it: the bridge's permission prompts are
+# only as meaningful as the policy that raises them, and `danger-full-access`
+# raises none.
+- id: sandbox
+  name: '@deepseek-ai/dsh-sandbox-local'
+
+- id: sandbox-policy
+  name: '@deepseek-ai/dsh-sandbox-policy'
+  config:
+    mode: workspace-write
+    workspaceRoot: !!js process.cwd()
+
+- id: subprocess
+  name: '@deepseek-ai/dsh-subprocess-local'
+
+- id: bash
+  name: '@deepseek-ai/dsh-bash-sandbox'
+  config:
+    timeoutMs: 60000
+
+# `ask` is what routes approvals to smelt's permission UI. `never` silently
+# auto-approves and the bridge will never show a prompt.
+- id: approval
+  name: '@deepseek-ai/dsh-user-approval'
+  config:
+    policy: ask
+
+# ---- Filesystem tools --------------------------------------------------------
+- id: fs-sandbox
+  name: '@deepseek-ai/dsh-fs-sandbox'
+  config:
+    cwd: !!js process.cwd()
+
+- id: fs-observation-policy
+  name: '@deepseek-ai/dsh-fs-observation-policy'
+
+- id: tool-fs
+  name: '@deepseek-ai/dsh-tool-fs'
+
+# Source of the PLAN panel: `todo_write` events become ACP plan updates.
+- id: tool-todo
+  name: '@deepseek-ai/dsh-tool-todo'
+  config:
+    allowParallelInProgress: true
+
+# ---- Agent spine -------------------------------------------------------------
+# Publishes `ctx.agents`, `ctx.tools`, `ctx.attachments`, and `ctx.commands` —
+# the four services the bridge reads. Anything it does not publish is reported
+# as an unavailable capability rather than failing at request time.
+- id: agent-spine
+  name: '@deepseek-ai/dsh-agent-spine-demo'
+  config:
+    workspaceContext:
+      maxBytes: 65536
+    persona: |
+      You are a coding assistant powered by the {{model}} model. Your working directory is {{cwd}}. Your bash tool runs under a file sandbox — a `[sandbox: file access denied …]` result is policy, not a command bug.
+
+      Verify your work by running the code or tests. Keep answers brief and factual.
+
+# ---- Attachments (absent on purpose) -----------------------------------------
+# No `attachments` service is mounted, so the bridge reports
+# `promptCapabilities.image: false` and smelt will not offer image paste for dsh.
+# That is upstream, not a choice: the only published store,
+# `@deepseek-ai/dsh-attachment-local`, exists solely on the `0.0.1-rc.1` train and
+# will not resolve against this one. Mount it here once it ships on this train —
+# the bridge needs no change, the capability flips from the service's presence.
+
+# ---- Session persistence -----------------------------------------------------
+# REQUIRED for resume. The bridge advertises `loadSession` only when a
+# `sessionPersistence` provider is composed; drop this block and smelt will open
+# a fresh session instead of restoring — correctly, but silently.
+#
+# `compression: none` is deliberate. The harness default is `zstd`, but smelt's
+# history browser reads `session.jsonl` directly to list past sessions, and it
+# has no zstd decoder; compressed logs still work for the agent and simply never
+# appear in the history list. Uncompressed keeps "resume from the sidebar"
+# working, at the cost of larger logs.
+- id: session-persistence
+  name: '@deepseek-ai/dsh-session-persistence-jsonl'
+  config:
+    root: './.sessions'
+    compression: none
+
+- id: session-checkpoint-policy
+  name: '@deepseek-ai/dsh-session-checkpoint-policy'
+
+# `path` is required — the derived search index is a dedicated file, not a
+# directory the plugin picks for you. Keep it out of `.sessions/`: that tree is
+# the append-only transcript of record, and this one is a rebuildable cache.
+- id: session-query
+  name: '@deepseek-ai/dsh-session-query-sqlite'
+  config:
+    path: './.sessions-index/search.sqlite'
+
+# ---- Context pressure --------------------------------------------------------
+# The token meter is also the source of the usage gauge's denominator: without a
+# routed context window the bridge suppresses the gauge rather than showing a
+# number with no scale.
+- id: token-meter
+  name: '@deepseek-ai/dsh-token-meter'
+
+- id: compaction-basic
+  name: '@deepseek-ai/dsh-compaction-basic'
+  config:
+    thresholdRatio: 0.8
+    retainRatio: 0.08
+    maxTokens: 8192
+    compactionRetries: 1
+
+# ---- The bridge --------------------------------------------------------------
+# smelt's agent-bus MCP server arrives per session on `session/new`, and the
+# bridge mounts it on that session's own agent scope. So no MCP entry belongs in
+# this file — but `@deepseek-ai/dsh-mcp-client` must be *installed* and
+# resolvable, because the bridge imports it on demand. Without it, sessions
+# still open and cross-agent messaging is missing with a warning on stderr.
+#
+# `provider`/`model` below is the route a fresh session starts on and the value
+# the model picker shows as current. Drop both and the bridge falls back to
+# `agentDefaultModel` if one is mounted; with neither, it publishes no picker
+# until the session's first request reveals the route it actually took.
+# Switching models additionally needs `@deepseek-ai/dsh-agent` resolvable — it
+# owns the routing seam the picker writes through.
+- id: acp-rich
+  name: '@smelt-ai/dsh-acp-rich'
+  config:
+    provider: deepseek-official
+    model: deepseek-v4-pro

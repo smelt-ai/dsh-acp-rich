@@ -1,0 +1,15 @@
+// Emit-only project: `src` and nothing else.
+//
+// The root `tsconfig.json` deliberately type-checks the tests too, which pulls
+// `tests/` under the common root and makes tsc emit `lib/src/**` + `lib/tests/**`
+// instead of `lib/**`. That silently moves the package entry point away from the
+// `main` / `exports` paths and ships the fake harness to consumers, so the build
+// gets its own project with `rootDir` pinned to `src`.
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib"
+  },
+  "include": ["src/**/*.ts"]
+}
