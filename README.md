@@ -31,33 +31,33 @@ This package subscribes to the same event stream and forwards all of it.
 
 ## Install and run
 
-This package is **not published to npm yet** — the `@smelt-ai` scope does not
-exist on the registry (`npm view` returns `Scope not found`). Until it is
-published, build a tarball from this directory and install it into a runtime
-tree. See [Publishing](#publishing) for what the first release needs.
-
-Once it is on the registry, step 2's last `npm i` becomes
-`npm i @smelt-ai/dsh-acp-rich` and steps 1 is unnecessary; nothing else changes,
-because the launch command names a path inside `~/.smelt/dsh` either way.
+This package is published as `@smelt-ai/dsh-acp-rich`. The bridge alone is not
+enough to run anything: it needs the harness tree and a `cordis.yml` beside it.
 
 smelt looks for that tree at a fixed location — `~/.smelt/dsh` — because the
 launch command has to name absolute paths (see below). Reproduce it with:
 
 ```bash
-# 1. the bridge, as a real tarball (a `file:` install symlinks, and then Node
-#    resolves the harness from this source tree instead of the runtime tree)
-cd dsh-acp-rich && npm install && npm run build && npm pack
-
-# 2. the runtime tree: harness + bridge + profile, all in one node_modules
+# 1. the runtime tree: harness + bridge + profile, all in one node_modules
 mkdir -p ~/.smelt/dsh && cd ~/.smelt/dsh
 npm init -y
-npm i $(sed -n 's/.*@deepseek-ai\/\([a-z-]*\).*/@deepseek-ai\/\1@0.1.0-rc.7/p' \
-        <path-to>/dsh-acp-rich/profile/cordis.yml | sort -u)
-npm i <path-to>/dsh-acp-rich/smelt-ai-dsh-acp-rich-0.1.0.tgz
-cp <path-to>/dsh-acp-rich/profile/cordis.yml .
+npm i @smelt-ai/dsh-acp-rich
+cp node_modules/@smelt-ai/dsh-acp-rich/profile/cordis.yml .
+# the profile is the list of *plugins*; install exactly it, plus the booter
+# (`dsh-app-boot` is what loads cordis.yml, so it never appears inside it)
+npm i @deepseek-ai/dsh-app-boot@0.1.0-rc.7 \
+      $(sed -n 's/.*@deepseek-ai\/\([a-z-]*\).*/@deepseek-ai\/\1@0.1.0-rc.7/p' \
+        cordis.yml | sort -u)
 
-# 3. credentials (a sibling `.env` works too; the bin loads it)
-echo 'DEEPSEEK_API_KEY=...' > ~/.smelt/dsh/.env
+# 2. credentials — the *launching* environment, not a file next to the runtime.
+#    `dsh-app-boot`'s `loadEnv` reads `<cwd>/.env`, and the cwd of an
+#    agent smelt starts is the user's project, not this directory: a
+#    `~/.smelt/dsh/.env` is never read (verified). smelt users should put these
+#    in Settings → Agent 对话 → "DeepSeek Harness 环境变量" instead, which
+#    reaches the runtime as the `process` layer — the most trusted one.
+export DEEPSEEK_API_KEY=...
+# Optional, for a non-official endpoint:
+export DEEPSEEK_BASE_URL=https://your-gateway.example/v1
 ```
 
 Verify the tree without smelt — two frames in, two results out:
@@ -78,6 +78,16 @@ same line, editable under Settings → ACP (`acp_dsh_cmd` in
 to the user's project, not to the runtime tree: Node resolves `node_modules`
 from the entry file's real path, so the entry must be named absolutely, and
 `--config` is resolved against the cwd, so the profile must be too.
+
+That same "cwd is the user's project" fact is why the bin **chdirs to the
+profile's directory** once the config path is resolved. Harness plugins that
+take a path resolve it with a bare `resolve()`, i.e. against the process cwd,
+so before this the profile's `root: './.sessions'` dropped a session store and
+a search index into every project you opened. Relative paths in `cordis.yml`
+now mean *next to `cordis.yml`*. Nothing the agent does is affected — the
+sandbox boundary, the filesystem tools, and `bash` all take the session's own
+workspace, not this process's cwd. If you are upgrading from `0.1.0`, delete
+any stray `.sessions/` and `.sessions-index/` left in your projects.
 
 Pin the whole harness to **one release train**. Its packages carry peer ranges
 on each other, so mixing (say) `dsh-agent@0.1.0-rc.7` with the `0.0.1-rc.1`

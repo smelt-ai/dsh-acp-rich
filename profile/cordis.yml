@@ -9,6 +9,10 @@
 # Two rules this tree must never break:
 #   * No stdout logger and no HMR. Stdout is the ACP JSON-RPC frame; anything
 #     else on it makes smelt report a corrupt agent.
+#   * Relative paths below resolve against THIS FILE's directory, not the
+#     client's project. The bin chdirs to the profile directory before boot for
+#     exactly that reason — path-taking plugins call bare `resolve()`, which
+#     would otherwise scatter the session store into every project you open.
 #   * Pin every version. The harness is a developer preview that promises
 #     compatibility-breaking changes, and `SessionEventMap` is a declaration-
 #     merged open vocabulary, so an upstream rename reaches this bridge as a
@@ -40,6 +44,9 @@
   name: '@deepseek-ai/dsh-sandbox-policy'
   config:
     mode: workspace-write
+    # Fallback only: every ACP session carries its own cwd, and the policy
+    # resolves `session.header.cwd ?? workspaceRoot`, so this value is what a
+    # session-less caller would get — not the sandbox root your agent runs under.
     workspaceRoot: !!js process.cwd()
 
 - id: subprocess
@@ -61,6 +68,8 @@
 - id: fs-sandbox
   name: '@deepseek-ai/dsh-fs-sandbox'
   config:
+    # Same story as `workspaceRoot`: the session's workspace wins for every
+    # tool call, so this is the no-session fallback.
     cwd: !!js process.cwd()
 
 - id: fs-observation-policy
@@ -107,6 +116,10 @@
 # has no zstd decoder; compressed logs still work for the agent and simply never
 # appear in the history list. Uncompressed keeps "resume from the sidebar"
 # working, at the cost of larger logs.
+#
+# `./.sessions` is next to this file (see the header) — one store per profile,
+# never inside the project being edited. Point it somewhere absolute to share a
+# store across profiles.
 - id: session-persistence
   name: '@deepseek-ai/dsh-session-persistence-jsonl'
   config:
@@ -119,6 +132,7 @@
 # `path` is required — the derived search index is a dedicated file, not a
 # directory the plugin picks for you. Keep it out of `.sessions/`: that tree is
 # the append-only transcript of record, and this one is a rebuildable cache.
+# Also profile-relative.
 - id: session-query
   name: '@deepseek-ai/dsh-session-query-sqlite'
   config:

@@ -1,6 +1,6 @@
 {
   "name": "@smelt-ai/dsh-acp-rich",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Presentation-complete Agent Client Protocol server for deepseek-harness: streaming text, reasoning, tool cards, inline diffs, plans, usage, commands, permission prompts, and resumable sessions",
   "license": "Apache-2.0",
   "type": "module",
