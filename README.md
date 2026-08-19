@@ -232,22 +232,19 @@ it needs no API key.
 
 ## Publishing
 
-Two blockers are account-side and cannot be fixed from this repository:
-
-1. **The `@smelt-ai` scope does not exist on npmjs.org.** `npm view` returns
-   `Scope not found`, not `404 package not found` — the org itself must be
-   created first, at <https://www.npmjs.com/org/create> (a free org covers
-   unlimited *public* packages), or the scope registered as a user account.
-   The npm org is separate from the GitHub org of the same name.
-2. **No machine here is logged in** (`npm whoami` → `ENEEDAUTH`). Use
-   `npm login` for a one-off release, or a granular access token in CI.
-
-Everything else is already in place and rehearsed with `npm publish --dry-run`:
+The `@smelt-ai` org exists on npmjs.org and is separate from the GitHub org of
+the same name. Releases are cut by hand from a logged-in machine:
 
 ```bash
 cd dsh-acp-rich
-npm publish        # runs prepublishOnly: build → typecheck → test → verify
+npm version <patch|minor|major>   # or edit "version" and commit
+npm publish --otp=<code>          # prepublishOnly: build → typecheck → test → verify
 ```
+
+The `--otp` is not optional: the publishing account has two-factor auth set to
+`auth-and-writes`, so a publish without a current code fails with `EOTP` after
+building and packing. A granular *automation* token is the only way to publish
+unattended — those bypass 2FA by design.
 
 `publishConfig.access` is `public`, which matters: **scoped packages publish as
 `restricted` by default**, and a restricted publish is rejected outright without
@@ -264,13 +261,13 @@ npm's `files` semantics — that `main`, `types`, every `bin`, the profile, the
 README, and the LICENSE are all present, that more than one module compiled, and
 that no test-only file leaked in.
 
-After the first release, revisit `default_acp_dsh_cmd()` in
-`crates/smelt-core/src/agent_kind.rs`. It currently names an absolute path
-inside `~/.smelt/dsh`, which is correct while installation is manual. Publishing
-makes an `npx -y @smelt-ai/dsh-acp-rich@<version>` command *possible*, but not
-obviously better: the bridge is useless without the harness tree and the profile
-next to it, and both still have to exist on disk. The launch path is only worth
-changing if smelt also learns to provision that tree.
+Now that the package is on the registry, `default_acp_dsh_cmd()` in smelt's
+`crates/smelt-core/src/agent_kind.rs` is worth a second look. It names an
+absolute path inside `~/.smelt/dsh`, which stays correct while installation is
+manual. Publishing makes an `npx -y @smelt-ai/dsh-acp-rich@<version>` command
+*possible*, but not obviously better: the bridge is useless without the harness
+tree and the profile next to it, and both still have to exist on disk. The
+launch path is only worth changing if smelt also learns to provision that tree.
 
 ## Upgrades
 
