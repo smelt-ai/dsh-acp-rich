@@ -37,7 +37,8 @@ requireShipped(manifest.types, 'package "types"');
 for (const target of Object.values(manifest.bin ?? {})) {
   requireShipped(target, 'package "bin"');
 }
-requireShipped('profile/cordis.yml', 'reference runtime profile');
+requireShipped(manifest.dsh?.bundle?.patch?.replace(/^\.\//, ''), 'dsh bundle patch');
+requireShipped('profile/smelt-host.patch.yml', 'Smelt host overlay');
 requireShipped('README.md', 'install and upgrade instructions');
 requireShipped('LICENSE', `declared license ${manifest.license}`);
 

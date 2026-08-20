@@ -1,0 +1,10 @@
+# Installing this package into a native dsh profile makes the Smelt host
+# available without changing that profile's normal Web/headless behavior.
+# Smelt's final overlay enables the row only for an ACP-hosted invocation.
+- insert:
+    - id: smelt-session-lease
+      name: '@smelt-ai/dsh-acp-rich/lease'
+
+    - id: smelt-acp-rich
+      name: '@smelt-ai/dsh-acp-rich'
+      disabled: true

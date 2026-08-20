@@ -13,6 +13,7 @@ import {
   ConfigRejected,
   EFFORT_CONFIG_ID,
   EFFORT_DEFAULT_VALUE,
+  fallbackSelectionInstaller,
   listSessionConfigOptions,
   MODEL_CONFIG_ID,
   modelRefusalReason,
@@ -134,6 +135,56 @@ describe('buildEffortOption', () => {
   it('publishes no selector for a model without efforts', () => {
     expect(buildEffortOption({}, undefined)).toBeUndefined()
     expect(buildEffortOption({ reasoning: { efforts: [] } }, undefined)).toBeUndefined()
+  })
+})
+
+describe('fallbackSelectionInstaller', () => {
+  it('couples prompt assembly and requests without resolving a harness module', async () => {
+    const listeners = new Map<string, (...args: unknown[]) => Promise<unknown>>()
+    const agentCtx = {
+      on: (event: string, listener: (...args: unknown[]) => Promise<unknown>) => {
+        listeners.set(event, listener)
+      },
+    }
+    const selection: HarnessModelSelectionRef = {
+      current: { provider: 'deepseek', model: 'deepseek-chat' },
+      assembled: undefined,
+    }
+
+    expect(await fallbackSelectionInstaller(agentCtx, selection)).toBe(true)
+
+    const assembly = await listeners.get('system-prompt/assemble')?.(
+      {},
+      {},
+      async () => ({ variables: { cwd: '/workspace', model: 'stale' } }),
+    )
+    expect(assembly).toEqual({
+      variables: {
+        cwd: '/workspace',
+        provider: 'deepseek',
+        model: 'deepseek-chat',
+      },
+    })
+    expect(selection.assembled).toEqual({ provider: 'deepseek', model: 'deepseek-chat' })
+
+    const request = await listeners.get('agent/request')?.(
+      {},
+      async () => ({
+        provider: 'old',
+        model: 'old',
+        reasoningEffort: 'inherited',
+        temperature: 0.2,
+      }),
+    )
+    expect(request).toEqual({
+      provider: 'deepseek',
+      model: 'deepseek-chat',
+      temperature: 0.2,
+    })
+  })
+
+  it('refuses a scope that cannot register waterfalls', async () => {
+    expect(await fallbackSelectionInstaller({}, { current: undefined, assembled: undefined })).toBe(false)
   })
 })
 

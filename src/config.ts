@@ -337,6 +337,69 @@ export type SelectionInstaller = (
   selection: HarnessModelSelectionRef,
 ) => Promise<boolean>
 
+type SelectionWaterfallNext = () => Promise<unknown>
+type SelectionWaterfallListener = (...args: unknown[]) => Promise<unknown>
+
+interface SelectionScope {
+  on: (event: string, listener: SelectionWaterfallListener) => unknown
+}
+
+function selectionScope(value: unknown): SelectionScope | undefined {
+  if (!isRecord(value) || typeof value.on !== 'function') return undefined
+  return value as unknown as SelectionScope
+}
+
+/**
+ * Install the two upstream selection waterfalls without importing a harness
+ * package. Bundles loaded through a `link:` dependency resolve their source
+ * path outside the native DSH profile, so Node cannot always resolve
+ * `@deepseek-ai/dsh-agent` from the bridge's own module location. The
+ * waterfall contract is stable public runtime behavior and lets the bridge
+ * retain a live picker in that normal native-profile layout.
+ */
+export const fallbackSelectionInstaller: SelectionInstaller = async (agentCtx, selection) => {
+  const scope = selectionScope(agentCtx)
+  if (scope === undefined) return false
+
+  scope.on('system-prompt/assemble', async (_assembly, _context, next) => {
+    // Snapshot before continuing: a switch concurrent with prompt assembly
+    // belongs to the next model step, never half of the current one.
+    const selected = selection.current
+    if (typeof next !== 'function') {
+      throw new TypeError('dsh-acp-rich: system-prompt/assemble waterfall did not provide next()')
+    }
+    const assembled = await (next as SelectionWaterfallNext)()
+    selection.assembled = selected
+    if (selected === undefined || !isRecord(assembled)) return assembled
+    const variables = isRecord(assembled.variables) ? assembled.variables : {}
+    return {
+      ...assembled,
+      variables: {
+        ...variables,
+        provider: selected.provider,
+        model: selected.model,
+      },
+    }
+  })
+  scope.on('agent/request', async (_request, next) => {
+    if (typeof next !== 'function') {
+      throw new TypeError('dsh-acp-rich: agent/request waterfall did not provide next()')
+    }
+    const resolved = await (next as SelectionWaterfallNext)()
+    const selected = selection.assembled
+    if (selected === undefined || !isRecord(resolved)) return resolved
+    const request = { ...resolved }
+    delete request.reasoningEffort
+    return {
+      ...request,
+      provider: selected.provider,
+      model: selected.model,
+      ...selected.reasoningEffort === undefined ? {} : { reasoningEffort: selected.reasoningEffort },
+    }
+  })
+  return true
+}
+
 /**
  * Install through the harness's own `installModelSelection`.
  *
@@ -352,10 +415,17 @@ export type SelectionInstaller = (
  * and a local copy would drift without ever failing a build.
  */
 export const defaultSelectionInstaller: SelectionInstaller = async (agentCtx, selection) => {
-  const mod = await import('@deepseek-ai/dsh-agent')
-  if (typeof mod.installModelSelection !== 'function') return false
-  mod.installModelSelection(agentCtx, selection)
-  return true
+  try {
+    const mod = await import('@deepseek-ai/dsh-agent')
+    if (typeof mod.installModelSelection === 'function') {
+      mod.installModelSelection(agentCtx, selection)
+      return true
+    }
+  } catch {
+    // `link:` bundles resolve through their source checkout, not the profile's
+    // module fallback. Use the compatible structural path below.
+  }
+  return fallbackSelectionInstaller(agentCtx, selection)
 }
 
 // ---------------------------------------------------------------------------

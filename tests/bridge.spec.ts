@@ -59,6 +59,60 @@ describe('initialize', () => {
   })
 })
 
+describe('initial model route', () => {
+  it('passes the native default to the agent even without live model selection', async () => {
+    rig = makeRig()
+    const current = rig
+    current.ctx.installModels({
+      default: {
+        provider: 'deepseek-official',
+        model: 'deepseek-v4-flash',
+        reasoningEffort: 'max',
+      },
+    })
+
+    await openSession(current)
+
+    expect(current.ctx.agentOptions).toEqual([
+      {
+        provider: 'deepseek-official',
+        model: 'deepseek-v4-flash',
+      },
+    ])
+  })
+})
+
+describe('session listing', () => {
+  it('lists persistence headers and filters by cwd', async () => {
+    rig = makeRig()
+    rig.ctx.persistedHeaders.push(
+      { id: 'one', createdAt: 1_700_000_000_000, cwd: '/workspace' },
+      { id: 'two', createdAt: 1_700_000_100_000, cwd: '/other' },
+    )
+    await rig.client.initialize({
+      protocolVersion: 1,
+      clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
+    })
+
+    const response = await rig.client.listSessions({ cwd: '/workspace' })
+    expect(response.sessions).toEqual([
+      {
+        sessionId: 'one',
+        cwd: '/workspace',
+      },
+    ])
+  })
+
+  it('rejects cursors because the persistence API is not paginated', async () => {
+    rig = makeRig()
+    await rig.client.initialize({
+      protocolVersion: 1,
+      clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
+    })
+    await expect(rig.client.listSessions({ cursor: 'next' })).rejects.toThrow(/does not use cursors/)
+  })
+})
+
 describe('streaming', () => {
   it('streams text deltas and reasoning on their separate channels', async () => {
     rig = makeRig()

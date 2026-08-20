@@ -1,0 +1,43 @@
+# Final host overlay used by `dsh-acp-rich --profile <name>`.
+#
+# The shared runtime (models, tools, policies, persistence, settings, and
+# credentials) remains untouched. Only native output hosts are disabled so
+# stdout can carry ACP JSON-RPC exclusively, then the dormant Smelt host row is
+# enabled. Missing id targets are harmless for custom profiles.
+- id: hmr
+  disabled: true
+
+- id: web-startup
+  disabled: true
+
+- id: webserver
+  disabled: true
+
+- id: web-runtime
+  disabled: true
+
+# These adapters hard-inject Web-host services. Leaving them enabled after
+# webserver/web-runtime are disabled makes Cordis fail boot with pending entries.
+- id: directory-picker
+  disabled: true
+
+- id: api-gateway
+  disabled: true
+
+- id: client-hmr
+  disabled: true
+
+- id: modules
+  disabled: true
+
+- id: connection
+  disabled: true
+
+- id: headless-startup
+  disabled: true
+
+- id: headless-runner
+  disabled: true
+
+- id: smelt-acp-rich
+  disabled: false

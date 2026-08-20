@@ -104,7 +104,29 @@ describe('package layout', () => {
 
   it('ships the bin the launch command names', () => {
     expect(pkg.bin['dsh-acp-rich']).toBe('bin/dsh-acp-rich.mjs')
+    expect(pkg.bin['dsh-credential']).toBe('bin/dsh-credential.mjs')
+    expect(pkg.bin['dsh-model-settings']).toBe('bin/dsh-model-settings.mjs')
     expect(pkg.files).toContain('bin/dsh-acp-rich.mjs')
+    expect(pkg.files).toContain('bin/dsh-credential.mjs')
+    expect(pkg.files).toContain('bin/dsh-model-settings.mjs')
+  })
+
+  it('installs as a native dsh bundle with a separate Smelt host overlay', () => {
+    expect(pkg.dsh.bundle.patch).toBe('./profile/cordis.patch.yml')
+    expect(pkg.exports['./lease'].default).toBe('./lib/lease.js')
+    expect(pkg.files).toContain('profile/cordis.patch.yml')
+    expect(pkg.files).toContain('profile/smelt-host.patch.yml')
+    expect(pkg.files).not.toContain('profile/cordis.yml')
+
+    const bundle = readFileSync(new URL('../profile/cordis.patch.yml', import.meta.url), 'utf8')
+    expect(bundle).toContain("@smelt-ai/dsh-acp-rich/lease")
+    expect(bundle).toMatch(/id: smelt-acp-rich[\s\S]*disabled: true/)
+
+    const overlay = readFileSync(new URL('../profile/smelt-host.patch.yml', import.meta.url), 'utf8')
+    expect(overlay).toMatch(/id: smelt-acp-rich[\s\S]*disabled: false/)
+    for (const id of ['webserver', 'web-runtime', 'directory-picker', 'api-gateway', 'client-hmr', 'modules', 'connection']) {
+      expect(overlay).toMatch(new RegExp(`id: ${id}[\\s\\S]*disabled: true`))
+    }
   })
 })
 

@@ -31,74 +31,30 @@ This package subscribes to the same event stream and forwards all of it.
 
 ## Install and run
 
-This package is published as `@smelt-ai/dsh-acp-rich`. The bridge alone is not
-enough to run anything: it needs the harness tree and a `cordis.yml` beside it.
-
-smelt looks for that tree at a fixed location — `~/.smelt/dsh` — because the
-launch command has to name absolute paths (see below). Reproduce it with:
+Install the package into each native dsh profile that should be available in
+smelt:
 
 ```bash
-# 1. the runtime tree: harness + bridge + profile, all in one node_modules
-mkdir -p ~/.smelt/dsh && cd ~/.smelt/dsh
-npm init -y
-npm i @smelt-ai/dsh-acp-rich
-cp node_modules/@smelt-ai/dsh-acp-rich/profile/cordis.yml .
-# the profile is the list of *plugins*; install exactly it, plus the booter
-# (`dsh-app-boot` is what loads cordis.yml, so it never appears inside it)
-npm i @deepseek-ai/dsh-app-boot@0.1.0-rc.7 \
-      $(sed -n 's/.*@deepseek-ai\/\([a-z-]*\).*/@deepseek-ai\/\1@0.1.0-rc.7/p' \
-        cordis.yml | sort -u)
-
-# 2. credentials — the *launching* environment, not a file next to the runtime.
-#    `dsh-app-boot`'s `loadEnv` reads `<cwd>/.env`, and the cwd of an
-#    agent smelt starts is the user's project, not this directory: a
-#    `~/.smelt/dsh/.env` is never read (verified). smelt users should put these
-#    in Settings → Agent 对话 → "DeepSeek Harness 环境变量" instead, which
-#    reaches the runtime as the `process` layer — the most trusted one.
-export DEEPSEEK_API_KEY=...
-# Optional, for a non-official endpoint:
-export DEEPSEEK_BASE_URL=https://your-gateway.example/v1
+dsh plugin --profile web add @smelt-ai/dsh-acp-rich
 ```
 
-Verify the tree without smelt — two frames in, two results out:
+The package contributes a dormant Cordis row through its native
+`dsh.bundle.patch`. A normal `dsh --profile web` invocation keeps using the
+profile's original Web or headless host. Smelt starts the same profile with one
+final overlay that disables output hosts and activates the ACP row:
 
 ```bash
-printf '%s\n' \
-  '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{}}}' \
-  '{"jsonrpc":"2.0","id":2,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}' \
-| node ~/.smelt/dsh/node_modules/@smelt-ai/dsh-acp-rich/bin/dsh-acp-rich.mjs \
-       --config ~/.smelt/dsh/cordis.yml
+dsh-acp-rich --profile web
 ```
 
-smelt ships this as the `dsh` ACP agent and its factory launch command is that
-same line, editable under Settings → ACP (`acp_dsh_cmd` in
-`~/.smelt/agent_ui.json`).
+Models, tools, policies, credentials, settings, persistence, and session IDs
+remain owned by the native profile. Smelt discovers installed profiles under
+`$DSH_HOME/profiles` and only replaces the host for its invocation.
 
-**Both paths are absolute on purpose.** smelt starts an agent with the cwd set
-to the user's project, not to the runtime tree: Node resolves `node_modules`
-from the entry file's real path, so the entry must be named absolutely, and
-`--config` is resolved against the cwd, so the profile must be too.
-
-That same "cwd is the user's project" fact is why the bin **chdirs to the
-profile's directory** once the config path is resolved. Harness plugins that
-take a path resolve it with a bare `resolve()`, i.e. against the process cwd,
-so before this the profile's `root: './.sessions'` dropped a session store and
-a search index into every project you opened. Relative paths in `cordis.yml`
-now mean *next to `cordis.yml`*. Nothing the agent does is affected — the
-sandbox boundary, the filesystem tools, and `bash` all take the session's own
-workspace, not this process's cwd. If you are upgrading from `0.1.0`, delete
-any stray `.sessions/` and `.sessions-index/` left in your projects.
-
-Pin the whole harness to **one release train**. Its packages carry peer ranges
-on each other, so mixing (say) `dsh-agent@0.1.0-rc.7` with the `0.0.1-rc.1`
-that some packages still publish as `latest` is an install-time `ERESOLVE`.
-Note that `npm view <pkg> version` reports the `latest` dist-tag, which for
-several harness packages points at an *older* train than the newest release —
-read `npm view <pkg> versions` instead.
-
-Unlike every other agent smelt supports, dsh is **not a CLI you install** — it
-is a cordis runtime you assemble. `profile/cordis.yml` is the reference
-assembly, with each block's consequence written next to it.
+The bundle also installs a session lease shared by both hosts. The same session
+cannot be resumed concurrently from native dsh and Smelt; a crashed owner leaves
+an explicit lease path in the error so it can be removed deliberately rather
+than risking two writers through automatic stale-lock reclamation.
 
 ## What is mapped
 
@@ -203,7 +159,7 @@ protocol error.
 - **Image input — blocked upstream, not a choice here.** The bridge advertises
   `promptCapabilities.image` from the presence of an `attachments` service, and
   the only published implementation, `@deepseek-ai/dsh-attachment-local`, exists
-  solely on the `0.0.1-rc.1` train, which will not resolve against a `0.1.0-rc.7`
+  solely on the `0.0.1-rc.1` train, which will not resolve against a `0.1.0-rc.8`
   tree. Until it is republished, a composed runtime reports `image: false` and
   that report is accurate. The bridge code path needs no change when it lands;
   mount the service and the capability flips.
@@ -261,12 +217,8 @@ npm's `files` semantics — that `main`, `types`, every `bin`, the profile, the
 README, and the LICENSE are all present, that more than one module compiled, and
 that no test-only file leaked in.
 
-Now that the package is on the registry, `default_acp_dsh_cmd()` in smelt's
-`crates/smelt-core/src/agent_kind.rs` is worth a second look. It names an
-absolute path inside `~/.smelt/dsh`, which stays correct while installation is
-manual. Publishing makes an `npx -y @smelt-ai/dsh-acp-rich@<version>` command
-*possible*, but not obviously better: the bridge is useless without the harness
-tree and the profile next to it, and both still have to exist on disk. The
+Smelt launches the binary from the selected native profile's dependency tree,
+so Node resolves the exact plugin version installed by `dsh plugin`. The
 launch path is only worth changing if smelt also learns to provision that tree.
 
 ## Upgrades
@@ -279,12 +231,12 @@ package restates the shapes it reads (`src/harness.ts`) behind runtime guards
 instead of importing them: an unknown shape degrades to "no card" rather than
 throwing inside a session-event listener, and the whole blast radius is one file.
 
-Pin every harness version in `cordis.yml`. After bumping any of them, re-run:
+After bumping the supported dsh release train, re-run:
 
 ```bash
 npm test          # 161 unit + contract tests, no harness install needed
 npm run typecheck
-npm run build && npm pack   # then reinstall into ~/.smelt/dsh
+npm run build && npm run verify-package
 ```
 
 then **boot the tree** — a green unit suite has already shipped a bridge that
@@ -292,7 +244,7 @@ could not start (see "What the unit tests cannot catch"):
 
 ```bash
 printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{}}}' \
-| node ~/.smelt/dsh/node_modules/@smelt-ai/dsh-acp-rich/bin/dsh-acp-rich.mjs --config ~/.smelt/dsh/cordis.yml
+| dsh-acp-rich --profile web
 ```
 
 then check by hand, against a real session:

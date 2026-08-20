@@ -39,6 +39,8 @@ import {
   type CancelNotification,
   type InitializeRequest,
   type InitializeResponse,
+  type ListSessionsRequest,
+  type ListSessionsResponse,
   type LoadSessionRequest,
   type LoadSessionResponse,
   type NewSessionRequest,
@@ -152,6 +154,16 @@ interface BridgeContext {
   get: (name: string) => unknown
   on: (event: string, listener: (...args: never[]) => unknown) => unknown
   effect: (setup: () => (() => unknown) | Promise<() => unknown>, label?: string) => unknown
+}
+
+interface HarnessSessionHeader {
+  id: string
+  createdAt: number
+  cwd?: string
+}
+
+interface HarnessSessionPersistence {
+  list: (signal?: AbortSignal) => Promise<HarnessSessionHeader[]>
 }
 
 /** Harness user-message factory; see {@link AcpRichConfig.createUserMessage}. */
@@ -281,6 +293,11 @@ export function apply(ctx: BridgeContext, config: AcpRichConfig = {}): void {
    */
   const canLoadSession = (): boolean =>
     typeof agents.resume === 'function' && ctx.get('sessionPersistence') !== undefined
+
+  const persistence = (): HarnessSessionPersistence | undefined => {
+    const service = ctx.get('sessionPersistence') as Partial<HarnessSessionPersistence> | undefined
+    return typeof service?.list === 'function' ? service as HarnessSessionPersistence : undefined
+  }
 
   const assertOpen = (): void => {
     if (closed) throw internalError('the ACP bridge has been disposed')
@@ -657,14 +674,6 @@ export function apply(ctx: BridgeContext, config: AcpRichConfig = {}): void {
     if (!isAbsolute(cwd)) throw invalidParams(`cwd must be an absolute path: ${cwd}`)
   }
 
-  /** Per-agent options from plugin config, without assigning absent fields. */
-  function agentOptions(): Record<string, unknown> {
-    return {
-      ...config.provider === undefined ? {} : { provider: config.provider },
-      ...config.model === undefined ? {} : { model: config.model },
-    }
-  }
-
   /**
    * Build the `setup` hook that mounts a session's MCP servers.
    *
@@ -736,6 +745,29 @@ export function apply(ctx: BridgeContext, config: AcpRichConfig = {}): void {
   }
 
   /**
+   * Give the loop its initial route as well as coupling the mutable selector.
+   *
+   * `installModelSelection()` only overrides the request waterfall after the
+   * agent scope starts. If that optional coupling is unavailable, omitting the
+   * route here leaves `agent.options.model` undefined: the stock deployment
+   * persona then cannot render `{{model}}` before the request can even reach
+   * the adapter. The default model is therefore a startup requirement, while
+   * live model switching remains an optional capability.
+   */
+  function agentOptions(selection: HarnessModelSelection | undefined): Record<string, unknown> {
+    if (selection !== undefined) {
+      return {
+        provider: selection.provider,
+        model: selection.model,
+      }
+    }
+    return {
+      ...config.provider === undefined ? {} : { provider: config.provider },
+      ...config.model === undefined ? {} : { model: config.model },
+    }
+  }
+
+  /**
    * Everything this bridge composes into a new agent's scope, plus the cell it
    * keeps a handle on.
    *
@@ -751,6 +783,7 @@ export function apply(ctx: BridgeContext, config: AcpRichConfig = {}): void {
   function agentSetup(servers: readonly AcpMcpServer[] | undefined, cwd: string): {
     option: { setup?: HarnessAgentSetup }
     selected: () => HarnessModelSelectionRef | undefined
+    initial: HarnessModelSelection | undefined
   } {
     const mcp = mcpSetup(servers, cwd)
     const start = initialSelection()
@@ -765,7 +798,7 @@ export function apply(ctx: BridgeContext, config: AcpRichConfig = {}): void {
         logger.warn(`acp-rich: the model selector is unavailable: ${String(error)}`)
       }
     }
-    return { option: { setup }, selected: () => (live ? cell : undefined) }
+    return { option: { setup }, selected: () => (live ? cell : undefined), initial: start }
   }
 
   /** The scope a config contributor reads, for one session. */
@@ -818,6 +851,7 @@ export function apply(ctx: BridgeContext, config: AcpRichConfig = {}): void {
           agentInfo: { name: 'deepseek-harness-acp-rich', version: '0.1.0' },
           agentCapabilities: {
             loadSession: canLoadSession(),
+            listSessions: persistence() === undefined ? undefined : {},
             promptCapabilities: {
               image: attachments() !== undefined,
               audio: false,
@@ -840,6 +874,22 @@ export function apply(ctx: BridgeContext, config: AcpRichConfig = {}): void {
         return Promise.resolve()
       },
 
+      async listSessions(params: ListSessionsRequest): Promise<ListSessionsResponse> {
+        assertOpen()
+        const store = persistence()
+        if (store === undefined) throw RequestError.methodNotFound('session/list')
+        if (params.cursor != null) {
+          throw invalidParams('dsh session listing does not use cursors')
+        }
+        const sessions = (await store.list())
+          .filter(header => params.cwd == null || header.cwd === params.cwd)
+          .map(header => ({
+            sessionId: header.id,
+            cwd: header.cwd ?? '/',
+          }))
+        return { sessions }
+      },
+
       async newSession(params: NewSessionRequest): Promise<NewSessionResponse> {
         assertOpen()
         validateCwd(params.cwd)
@@ -848,7 +898,7 @@ export function apply(ctx: BridgeContext, config: AcpRichConfig = {}): void {
         const handle = await agents.create({
           sessionId,
           meta: { cwd: params.cwd },
-          agentOptions: agentOptions(),
+          agentOptions: agentOptions(setup.initial),
           ...setup.option,
         })
         if (closed) {
@@ -881,7 +931,7 @@ export function apply(ctx: BridgeContext, config: AcpRichConfig = {}): void {
         const setup = agentSetup(params.mcpServers as AcpMcpServer[] | undefined, params.cwd)
         const handle = await resume.call(agents, {
           resumeSessionId: params.sessionId,
-          agentOptions: agentOptions(),
+          agentOptions: agentOptions(setup.initial),
           ...setup.option,
         })
         if (closed) {

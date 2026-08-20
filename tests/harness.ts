@@ -28,7 +28,11 @@ import type {
   HarnessSessionEvent,
   HarnessToolDefinition,
 } from '../src/harness.ts'
-import type { HarnessModelSelectionRef, SelectionInstaller } from '../src/config.ts'
+import type {
+  HarnessModelSelection,
+  HarnessModelSelectionRef,
+  SelectionInstaller,
+} from '../src/config.ts'
 
 type Listener = (...args: never[]) => unknown
 
@@ -107,11 +111,14 @@ export class FakeContext {
   readonly listeners = new Map<string, Listener[]>()
   readonly services = new Map<string, unknown>()
   readonly handles = new Map<string, HarnessAgentHandle>()
+  /** Agent options supplied by the bridge, in create/resume order. */
+  readonly agentOptions: Record<string, unknown>[] = []
   teardown: (() => unknown) | undefined
   /** Set false to model a profile that composes no `sessionPersistence` provider. */
   supportsResume = true
   /** Seed logs keyed by session id, served by `agents.resume`. */
   readonly persisted = new Map<string, HarnessSessionEvent[]>()
+  readonly persistedHeaders: { id: string; createdAt: number; cwd?: string }[] = []
 
   /** Plugins mounted on the per-agent scope, in mount order. */
   readonly mountedPlugins: { plugin: unknown; config: unknown }[] = []
@@ -125,14 +132,24 @@ export class FakeContext {
   }
 
   readonly agents = {
-    create: async (options: { sessionId: string; setup?: HarnessAgentSetup }): Promise<HarnessAgentHandle> => {
+    create: async (options: {
+      sessionId: string
+      agentOptions?: Record<string, unknown>
+      setup?: HarnessAgentSetup
+    }): Promise<HarnessAgentHandle> => {
+      this.agentOptions.push(options.agentOptions ?? {})
       await options.setup?.(this.agentCtx)
       const agent = new FakeAgent(options.sessionId, this)
       const handle: HarnessAgentHandle = { agent, dispose: async () => { this.handles.delete(options.sessionId) } }
       this.handles.set(options.sessionId, handle)
       return handle
     },
-    resume: async (options: { resumeSessionId: string; setup?: HarnessAgentSetup }): Promise<HarnessAgentHandle> => {
+    resume: async (options: {
+      resumeSessionId: string
+      agentOptions?: Record<string, unknown>
+      setup?: HarnessAgentSetup
+    }): Promise<HarnessAgentHandle> => {
+      this.agentOptions.push(options.agentOptions ?? {})
       await options.setup?.(this.agentCtx)
       const agent = new FakeAgent(options.resumeSessionId, this, this.persisted.get(options.resumeSessionId) ?? [])
       const handle: HarnessAgentHandle = { agent, dispose: async () => { this.handles.delete(options.resumeSessionId) } }
@@ -150,7 +167,11 @@ export class FakeContext {
     // The registry method always exists (it is a class method on the real
     // registry); what a bare profile lacks is the persistence provider it
     // loads through.
-    if (name === 'sessionPersistence') return this.supportsResume ? { load: () => undefined } : undefined
+    if (name === 'sessionPersistence') {
+      return this.supportsResume
+        ? { load: () => undefined, list: async () => this.persistedHeaders }
+        : undefined
+    }
     return this.services.get(name)
   }
 
@@ -207,7 +228,7 @@ export class FakeContext {
    */
   installModels(options: {
     providers?: { id: string; name: string; models: FakeModel[] }[]
-    default?: { provider: string; model: string } | undefined
+    default?: HarnessModelSelection | undefined
     failing?: string
   } = {}): { id: string; name: string; models: FakeModel[] }[] {
     const providers = options.providers ?? [{
