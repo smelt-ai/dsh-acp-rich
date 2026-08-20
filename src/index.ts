@@ -81,6 +81,7 @@ import {
   type SessionConfigScope,
 } from './config.ts'
 import { GrantStore, interpretPermission, PERMISSION_OPTIONS } from './grants.ts'
+import { createRuntimeGate, type LoaderLike } from './readiness.ts'
 import {
   defaultMcpMounter,
   mapMcpServers,
@@ -278,6 +279,26 @@ export function apply(ctx: BridgeContext, config: AcpRichConfig = {}): void {
   const tools = (): HarnessToolRegistry | undefined => ctx.get('tools') as HarnessToolRegistry | undefined
   const commands = (): HarnessCommandRegistry | undefined => ctx.get('commands') as HarnessCommandRegistry | undefined
   const attachments = (): HarnessAttachmentStore | undefined => ctx.get('attachments') as HarnessAttachmentStore | undefined
+
+  /**
+   * Serve nothing from a half-composed runtime.
+   *
+   * This plugin's `apply` runs mid-boot and binds stdio at once, so a client
+   * already waiting on the pipe can be answered before the settings-backed
+   * plugins have registered their sections. A session opened in that window
+   * snapshots a model catalog holding only composition defaults, which is how a
+   * user-declared provider route ends up permanently missing from its picker.
+   */
+  const awaitRuntime = createRuntimeGate(
+    () => ctx.get('loader') as LoaderLike | undefined,
+    {
+      onTimeout: unsettled => {
+        logger.warn(
+          `acp-rich: serving requests before the runtime settled; still activating: ${unsettled.join(', ')}`,
+        )
+      },
+    },
+  )
 
   /**
    * Whether this deployment can actually serve `session/load`.
@@ -838,7 +859,10 @@ export function apply(ctx: BridgeContext, config: AcpRichConfig = {}): void {
   const makeAgent = (connection: AgentSideConnection): AcpAgent => {
     conn = connection
     return {
-      initialize(params: InitializeRequest): Promise<InitializeResponse> {
+      async initialize(params: InitializeRequest): Promise<InitializeResponse> {
+        // Capabilities are read from the composed tree, so they must not be
+        // answered before that tree exists.
+        await awaitRuntime()
         // Selectors are only published to a client that asked for them: an
         // unasked-for picker has no `session/set_config_option` path home.
         clientWantsConfigOptions = params.clientCapabilities?.session?.configOptions != null
@@ -876,6 +900,7 @@ export function apply(ctx: BridgeContext, config: AcpRichConfig = {}): void {
 
       async listSessions(params: ListSessionsRequest): Promise<ListSessionsResponse> {
         assertOpen()
+        await awaitRuntime()
         const store = persistence()
         if (store === undefined) throw RequestError.methodNotFound('session/list')
         if (params.cursor != null) {
@@ -892,6 +917,10 @@ export function apply(ctx: BridgeContext, config: AcpRichConfig = {}): void {
 
       async newSession(params: NewSessionRequest): Promise<NewSessionResponse> {
         assertOpen()
+        // A session's config options are snapshotted here and never rebuilt
+        // from a later catalog, so this is the one await that decides whether
+        // the user's own provider routes exist for the life of the session.
+        await awaitRuntime()
         validateCwd(params.cwd)
         const sessionId = randomUUID()
         const setup = agentSetup(params.mcpServers as AcpMcpServer[] | undefined, params.cwd)
@@ -913,6 +942,7 @@ export function apply(ctx: BridgeContext, config: AcpRichConfig = {}): void {
 
       async loadSession(params: LoadSessionRequest): Promise<LoadSessionResponse> {
         assertOpen()
+        await awaitRuntime()
         validateCwd(params.cwd)
         const resume = agents.resume
         if (!canLoadSession() || typeof resume !== 'function') {
