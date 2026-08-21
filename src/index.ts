@@ -82,6 +82,7 @@ import {
 } from './config.ts'
 import { GrantStore, interpretPermission, PERMISSION_OPTIONS } from './grants.ts'
 import { createRuntimeGate, type LoaderLike } from './readiness.ts'
+import { joinAgentPreset } from './presets.ts'
 import {
   defaultMcpMounter,
   mapMcpServers,
@@ -179,6 +180,14 @@ export interface AcpRichConfig {
   provider?: string
   /** Model name for created agents. */
   model?: string
+  /**
+   * Agent preset every session joins; undefined uses the deployment default.
+   *
+   * The preset is what carries an agent's tools, prompt sections and skill
+   * catalog, so this is the difference between a session that can run a shell
+   * and read files and one that cannot.
+   */
+  agentPreset?: string
   /**
    * Override the harness user-message factory.
    *
@@ -812,6 +821,16 @@ export function apply(ctx: BridgeContext, config: AcpRichConfig = {}): void {
     const cell: HarnessModelSelectionRef = { current: start, assembled: undefined }
     let live = false
     const setup: HarnessAgentSetup = async agentCtx => {
+      // First, and before anything reads the registries: the preset join is
+      // what puts tools, prompt sections and skills in this agent's scope, so
+      // a later registration would otherwise land in a scope that is still
+      // parented to the empty global layer.
+      const join = await joinAgentPreset(ctx, agentCtx, config.agentPreset)
+      if (!join.joined && join.reason === 'failed') {
+        logger.warn(
+          `acp-rich: could not join agent preset ${config.agentPreset ?? '(default)'}; this session has no preset tools, prompt sections or skills: ${String(join.error)}`,
+        )
+      }
       if (mcp !== undefined) await mcp(agentCtx)
       try {
         live = await install(agentCtx, cell)
