@@ -56,6 +56,43 @@ cannot be resumed concurrently from native dsh and Smelt; a crashed owner leaves
 an explicit lease path in the error so it can be removed deliberately rather
 than risking two writers through automatic stale-lock reclamation.
 
+## Querying model capabilities
+
+Reasoning efforts are not a fixed list. `resolveModelInfo` answers for a
+*resolved route*, so the same model id reports four efforts through a direct
+connection and none through a relay, and a connection pinned to
+`thinking: disabled` collapses to `off` alone. A client that hardcodes the
+DeepSeek ladder therefore offers options that fail every request made with them
+as soon as the profile points somewhere else.
+
+The package ships a one-shot probe for exactly that question:
+
+```bash
+dsh-model-capabilities --profile web
+```
+
+It boots the profile's own runtime with every output host disabled, waits for
+the provider catalog to settle, resolves each advertised model, prints one JSON
+report on stdout, and exits:
+
+```json
+{"providers":[
+  {"id":"deepseek-official","name":"DeepSeek","models":[
+    {"id":"deepseek-v4-pro","name":"DeepSeek-V4-Pro",
+     "efforts":[{"id":"off","name":"Off"},{"id":"max","name":"Max"}],
+     "defaultEffort":"high"}]},
+  {"id":"sub2api","name":"Sub2Api","models":[
+    {"id":"deepseek-v4-pro","name":"Deepseek-V4-Pro"}]}]}
+```
+
+**`efforts` is omitted, not emptied, when a route advertises no reasoning
+control**, mirroring `resolveModelInfo` itself. Consumers must read that
+absence as "render no picker". Substituting a default list is the bug this
+tool exists to remove.
+
+Expect a few seconds per call: assembling the runtime is the only way to get a
+truthful answer, so the cost is a process launch rather than a file read.
+
 ## What is mapped
 
 | ACP `SessionUpdate` | dsh source |
@@ -277,4 +314,5 @@ the checklist is the test.
 | `src/mcp.ts` | ACP `mcpServers` → `mcp-client` configuration, mounted per agent scope. |
 | `src/config.ts` | Session config options. Also a **registry**: `registerSessionConfig` adds a selector without patching this package. |
 | `src/index.ts` | The cordis plugin: a dispatch table over harness events, plus the ACP method surface. |
+| `src/capabilities.ts` | One-shot probe behind `dsh-model-capabilities`: reports the reasoning efforts each route actually advertises, so clients need not hardcode them. |
 | `scripts/verify-package.mjs` | Publish guard. Asserts the real `npm pack` output carries every file the manifest promises, so an unbuilt tree cannot reach the registry. |

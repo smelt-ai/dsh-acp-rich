@@ -1,0 +1,43 @@
+# Overlay for `dsh-model-capabilities --profile <name>`.
+#
+# Same host-silencing rows as the ACP overlay — the capability probe boots the
+# shared runtime (providers, credentials, settings) and nothing that draws or
+# serves — but the ACP row stays dormant here. Enabling it would put a JSON-RPC
+# server on stdio for a process whose entire job is to write one file and exit.
+- id: hmr
+  disabled: true
+
+- id: web-startup
+  disabled: true
+
+- id: webserver
+  disabled: true
+
+- id: web-runtime
+  disabled: true
+
+# These adapters hard-inject Web-host services. Leaving them enabled after
+# webserver/web-runtime are disabled makes Cordis fail boot with pending entries.
+- id: directory-picker
+  disabled: true
+
+- id: api-gateway
+  disabled: true
+
+- id: client-hmr
+  disabled: true
+
+- id: modules
+  disabled: true
+
+- id: connection
+  disabled: true
+
+- id: headless-startup
+  disabled: true
+
+- id: headless-runner
+  disabled: true
+
+- id: smelt-model-capabilities
+  disabled: false

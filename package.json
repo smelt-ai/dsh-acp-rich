@@ -1,6 +1,6 @@
 {
   "name": "@smelt-ai/dsh-acp-rich",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Presentation-complete Agent Client Protocol server for deepseek-harness: streaming text, reasoning, tool cards, inline diffs, plans, usage, commands, permission prompts, and resumable sessions",
   "license": "Apache-2.0",
   "type": "module",
@@ -33,6 +33,10 @@
       "types": "./lib/lease.d.ts",
       "default": "./lib/lease.js"
     },
+    "./capabilities": {
+      "types": "./lib/capabilities.d.ts",
+      "default": "./lib/capabilities.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
@@ -41,8 +45,10 @@
     "bin/dsh-acp-rich.mjs",
     "bin/dsh-credential.mjs",
     "bin/dsh-model-settings.mjs",
+    "bin/dsh-model-capabilities.mjs",
     "profile/cordis.patch.yml",
     "profile/smelt-host.patch.yml",
+    "profile/smelt-capabilities.patch.yml",
     "README.md",
     "LICENSE"
   ],
@@ -81,7 +87,8 @@
   "bin": {
     "dsh-acp-rich": "bin/dsh-acp-rich.mjs",
     "dsh-credential": "bin/dsh-credential.mjs",
-    "dsh-model-settings": "bin/dsh-model-settings.mjs"
+    "dsh-model-settings": "bin/dsh-model-settings.mjs",
+    "dsh-model-capabilities": "bin/dsh-model-capabilities.mjs"
   },
   "peerDependenciesMeta": {
     "@deepseek-ai/dsh": {
