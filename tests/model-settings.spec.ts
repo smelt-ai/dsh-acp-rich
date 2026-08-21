@@ -13,7 +13,10 @@ afterEach(() => {
   home = undefined
 })
 
-function run(action: 'read' | 'save' | 'save-custom' | 'delete-custom', payload?: object) {
+function run(
+  action: 'read' | 'save' | 'save-custom' | 'refresh-models' | 'delete-custom',
+  payload?: object,
+) {
   const args = [helper.pathname, '--action', action]
   return {
     args,
@@ -200,5 +203,60 @@ describe('native model settings editor', () => {
       apiKeyEnv: '',
       credentialConfigured: false,
     })
+  })
+  it('refreshes only the models key, leaving hand-written provider fields alone', () => {
+    home = mkdtempSync(join(tmpdir(), 'dsh-model-settings-'))
+    const settingsPath = join(home, 'settings.yaml')
+    writeFileSync(
+      settingsPath,
+      '# keep this comment\nllm-pi-ai:\n  providers:\n    gateway:\n      displayName: Gateway\n'
+        + '      api: openai-responses\n      baseURL: https://gateway.example\n'
+        + '      timeoutMs: 90000\n      headers:\n        X-Tenant: acme\n'
+        + '      models:\n        - id: stale-model\n',
+    )
+
+    const refreshed = run('refresh-models', {
+      id: 'gateway',
+      models: [{ id: 'fresh-a', name: 'Fresh A', contextWindow: 131072 }, { id: 'fresh-b' }],
+    }).result
+
+    expect(refreshed.status, refreshed.stderr).toBe(0)
+    const raw = readFileSync(settingsPath, 'utf8')
+    expect(raw).toContain('# keep this comment')
+    // The whole point of a dedicated action: an unattended refresh must not
+    // become a rewrite of the provider node.
+    expect(parse(raw)['llm-pi-ai'].providers.gateway).toEqual({
+      displayName: 'Gateway',
+      api: 'openai-responses',
+      baseURL: 'https://gateway.example',
+      timeoutMs: 90000,
+      headers: { 'X-Tenant': 'acme' },
+      models: [{ id: 'fresh-a', name: 'Fresh A', contextWindow: 131072 }, { id: 'fresh-b' }],
+    })
+  })
+
+  it('refuses to refresh a provider that is not configured', () => {
+    home = mkdtempSync(join(tmpdir(), 'dsh-model-settings-'))
+    writeFileSync(join(home, 'settings.yaml'), '{}\n')
+
+    const refreshed = run('refresh-models', { id: 'ghost', models: [{ id: 'a' }] }).result
+
+    expect(refreshed.status).not.toBe(0)
+    expect(refreshed.stderr).toContain('not configured')
+  })
+
+  it('refuses an empty refresh rather than writing a route dsh would reject', () => {
+    home = mkdtempSync(join(tmpdir(), 'dsh-model-settings-'))
+    writeFileSync(
+      join(home, 'settings.yaml'),
+      'llm-pi-ai:\n  providers:\n    gateway:\n      api: openai-responses\n'
+        + '      baseURL: https://gateway.example\n      models:\n        - id: keep-me\n',
+    )
+
+    const refreshed = run('refresh-models', { id: 'gateway', models: [] }).result
+
+    expect(refreshed.status).not.toBe(0)
+    expect(parse(readFileSync(join(home, 'settings.yaml'), 'utf8'))['llm-pi-ai']
+      .providers.gateway.models).toEqual([{ id: 'keep-me' }])
   })
 })

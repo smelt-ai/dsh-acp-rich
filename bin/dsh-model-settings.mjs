@@ -13,7 +13,7 @@ const { values } = parseArgs({
 })
 
 const action = values.action
-if (!['read', 'save', 'save-custom', 'delete-custom'].includes(action)) {
+if (!['read', 'save', 'save-custom', 'refresh-models', 'delete-custom'].includes(action)) {
   process.stderr.write('dsh-model-settings: unsupported --action\n')
   process.exit(64)
 }
@@ -105,6 +105,23 @@ if (action === 'save-custom') {
     credentials.document.setIn([apiKeyEnv], apiKey)
     await writeAtomic(credentialsPath, credentials.document.toString())
   }
+  process.stdout.write('{"ok":true}\n')
+  process.exit(0)
+}
+
+if (action === 'refresh-models') {
+  const id = requiredProviderId(payload.id)
+  const models = requiredModels(payload.models)
+  const settings = await readSettings(settingsPath)
+  // Only the `models` key is written. A refresh runs unattended on every
+  // launch, and `save-custom` replaces the whole provider node — reusing it
+  // here would silently drop `headers`, `timeoutMs`, `reasoning` and every
+  // other field a deployment hand-wrote beside the ones this bridge models.
+  if (!isObject(objectAt(objectAt(settings.value, 'llm-pi-ai'), 'providers')[id])) {
+    throw new Error(`dsh-model-settings: provider "${id}" is not configured`)
+  }
+  settings.set(['llm-pi-ai', 'providers', id, 'models'], models)
+  await settings.write()
   process.stdout.write('{"ok":true}\n')
   process.exit(0)
 }

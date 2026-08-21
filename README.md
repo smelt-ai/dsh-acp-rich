@@ -130,6 +130,28 @@ Credentials come from the profile's own provider map when `apiKey` is omitted,
 which is why the probe waits for the provider catalog to settle before asking.
 Skipping that wait yields `NO_DISCOVERY` first and then a `401`, in that order.
 
+### Keeping a route's catalog current
+
+A route can be marked *auto* by the client, meaning "I did not choose these
+models; re-read them from the endpoint." dsh refuses a declared route that
+resolves no models, so the catalog written to `settings.yaml` is always a
+concrete list — auto is a statement about *who maintains it*, not a way to omit
+it.
+
+`dsh-model-settings --action refresh-models` writes that refreshed list:
+
+```bash
+echo '{"id":"sub2api","models":[{"id":"gpt-5.6"}]}' \
+  | dsh-model-settings --action refresh-models
+```
+
+It sets **only** the provider's `models` key. `save-custom` replaces the whole
+provider node, which is correct for an edit the user is watching but wrong for
+a refresh that runs unattended at every launch: it would silently drop
+`headers`, `timeoutMs`, `reasoning` and every other field a deployment
+hand-wrote beside the ones this bridge models. An empty list and an unknown
+provider are both refused rather than written.
+
 ## What is mapped
 
 | ACP `SessionUpdate` | dsh source |
