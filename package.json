@@ -1,6 +1,6 @@
 {
   "name": "@smelt-ai/dsh-acp-rich",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Presentation-complete Agent Client Protocol server for deepseek-harness: streaming text, reasoning, tool cards, inline diffs, plans, usage, commands, permission prompts, and resumable sessions",
   "license": "Apache-2.0",
   "type": "module",
@@ -37,6 +37,10 @@
       "types": "./lib/capabilities.d.ts",
       "default": "./lib/capabilities.js"
     },
+    "./discovery": {
+      "types": "./lib/discovery.d.ts",
+      "default": "./lib/discovery.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
@@ -46,9 +50,11 @@
     "bin/dsh-credential.mjs",
     "bin/dsh-model-settings.mjs",
     "bin/dsh-model-capabilities.mjs",
+    "bin/dsh-discover-models.mjs",
     "profile/cordis.patch.yml",
     "profile/smelt-host.patch.yml",
     "profile/smelt-capabilities.patch.yml",
+    "profile/smelt-discovery.patch.yml",
     "README.md",
     "LICENSE"
   ],
@@ -88,7 +94,8 @@
     "dsh-acp-rich": "bin/dsh-acp-rich.mjs",
     "dsh-credential": "bin/dsh-credential.mjs",
     "dsh-model-settings": "bin/dsh-model-settings.mjs",
-    "dsh-model-capabilities": "bin/dsh-model-capabilities.mjs"
+    "dsh-model-capabilities": "bin/dsh-model-capabilities.mjs",
+    "dsh-discover-models": "bin/dsh-discover-models.mjs"
   },
   "peerDependenciesMeta": {
     "@deepseek-ai/dsh": {

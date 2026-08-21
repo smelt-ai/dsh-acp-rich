@@ -40,6 +40,7 @@ for (const target of Object.values(manifest.bin ?? {})) {
 requireShipped(manifest.dsh?.bundle?.patch?.replace(/^\.\//, ''), 'dsh bundle patch');
 requireShipped('profile/smelt-host.patch.yml', 'Smelt host overlay');
 requireShipped('profile/smelt-capabilities.patch.yml', 'model capability overlay');
+requireShipped('profile/smelt-discovery.patch.yml', 'model discovery overlay');
 requireShipped('README.md', 'install and upgrade instructions');
 requireShipped('LICENSE', `declared license ${manifest.license}`);
 

@@ -72,6 +72,36 @@ export interface HarnessLlmService {
   listProviders: () => readonly HarnessProviderInfo[]
   listModels: (provider: string) => Promise<readonly HarnessModelInfo[]>
   resolveModelInfo: (provider: string, model: string) => Promise<HarnessResolvedModelInfo>
+  /**
+   * `LlmModelDiscoveryRequest` — ask an endpoint which models it serves.
+   *
+   * Optional because it is a newer harness surface: a build without it must
+   * degrade to hand-entry, not crash. See `discovery.ts`.
+   */
+  discoverModels?: (
+    settingsNs: string,
+    request: HarnessDiscoveryRequest,
+  ) => Promise<readonly HarnessDiscoveredModel[]>
+}
+
+/** `LlmModelDiscoveryRequest` — the draft route being interrogated. */
+export interface HarnessDiscoveryRequest {
+  /** Existing route; a route pi-ai ships a catalog for answers from it, no network. */
+  provider?: string
+  /** Endpoint to ask. Treated as a prefix: `…/openai/v1` keeps its path. */
+  baseURL?: string
+  /** Wire protocol; only `openai-completions`/`openai-responses` have a readable listing. */
+  api?: string
+  /** One-shot credential. Omitted means "use whatever the named route already stored". */
+  apiKey?: string
+}
+
+/** `LlmDiscoveredModel` — one advertised model. */
+export interface HarnessDiscoveredModel {
+  id: string
+  name?: string
+  contextWindow?: number
+  maxTokens?: number
 }
 
 /** `ModelSelection` — a complete provider/model/effort choice. */

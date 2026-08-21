@@ -93,6 +93,43 @@ tool exists to remove.
 Expect a few seconds per call: assembling the runtime is the only way to get a
 truthful answer, so the cost is a process launch rather than a file read.
 
+## Discovering an endpoint's models
+
+A relay gateway can front dozens of models. Asking the user to retype every id
+into a settings form is a transcription exercise that also loses the context
+window and max-token figures the endpoint already publishes.
+
+dsh answers this itself: `dsh-llm-pi-ai` registers a model discovery that calls
+`GET {baseURL}/models` with the provider's stored bearer token. This package
+only exposes it:
+
+```bash
+echo '{"provider":"sub2api","api":"openai-responses",
+       "baseURL":"https://example.invalid"}' \
+  | dsh-discover-models --profile web
+```
+
+```json
+{"models":[{"id":"deepseek-v4-pro","name":"DeepSeek-V4-Pro",
+            "contextWindow":131072,"maxTokens":32768}]}
+```
+
+The request goes over **stdin, not argv**, because it may carry an `apiKey` and
+argv is world-readable through `ps`.
+
+Two limits are dsh's, and are deliberate:
+
+- **Only `openai-completions` and `openai-responses` can be listed.** Azure
+  (api-key header plus an api-version query) and Codex (OAuth) are excluded, and
+  anything else answers `DISCOVERY_UNSUPPORTED`. That answer means *fall back to
+  typing the model in by hand* — it is not a failure to retry.
+- **A provider with a built-in catalog answers from the catalog** and makes no
+  network call, so `baseURL` is only required for providers dsh does not know.
+
+Credentials come from the profile's own provider map when `apiKey` is omitted,
+which is why the probe waits for the provider catalog to settle before asking.
+Skipping that wait yields `NO_DISCOVERY` first and then a `401`, in that order.
+
 ## What is mapped
 
 | ACP `SessionUpdate` | dsh source |
@@ -315,4 +352,7 @@ the checklist is the test.
 | `src/config.ts` | Session config options. Also a **registry**: `registerSessionConfig` adds a selector without patching this package. |
 | `src/index.ts` | The cordis plugin: a dispatch table over harness events, plus the ACP method surface. |
 | `src/capabilities.ts` | One-shot probe behind `dsh-model-capabilities`: reports the reasoning efforts each route actually advertises, so clients need not hardcode them. |
+| `src/discovery.ts` | One-shot probe behind `dsh-discover-models`: forwards dsh's own `GET /models` discovery so a relay's catalog need not be retyped. |
+| `bin/dsh-discover-models.mjs` | Its launcher. Reads the request from stdin so an `apiKey` never lands in `ps` output. |
+| `profile/smelt-discovery.patch.yml` | Bundle patch that mounts the discovery probe; shipped disabled and enabled only by that bin. |
 | `scripts/verify-package.mjs` | Publish guard. Asserts the real `npm pack` output carries every file the manifest promises, so an unbuilt tree cannot reach the registry. |

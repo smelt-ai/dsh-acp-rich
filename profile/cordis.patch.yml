@@ -12,3 +12,7 @@
     - id: smelt-model-capabilities
       name: '@smelt-ai/dsh-acp-rich/capabilities'
       disabled: true
+
+    - id: smelt-model-discovery
+      name: '@smelt-ai/dsh-acp-rich/discovery'
+      disabled: true
